@@ -1,0 +1,803 @@
+---
+title: "Project Appendix"
+output:
+  word_document
+---
+#Loading Libraries and setting local working Directory
+```{r}
+
+library(tseries)
+library(fBasics)
+library(forecast)
+library(lmtest)
+library(ggplot2)
+library(astsa)
+library(fUnitRoots)
+library(lubridate)
+library(scales) 
+library(gridExtra)
+setwd("C:\\Users\\guy.dor\\Documents\\CSC 425\\Project")
+```
+
+#DAILY DATA
+
+#read data
+```{r}
+myd=read.table("Speed_Camera_Violations.csv",header=T, sep=',') 
+```
+
+#aggregrate data by day
+```{r}
+smyd <- aggregate(x = myd[c("VIOLATIONS")],FUN = sum,
+                  by = list(VIOLATION.DATE = myd$VIOLATION.DATE))
+```
+
+#sort data by day
+```{r}
+dsmyd = smyd[order(as.Date(smyd$VIOLATION.DATE, format="%m/%d/%Y")),]
+```
+```{r}
+head(dsmyd)
+basicStats(dsmyd$VIOLATIONS)
+```
+
+```{r}
+vts= ts(dsmyd[,2], start=c(2014,7,1), freq=7)
+```
+
+#histogram
+```{r}
+hist(dsmyd$VIOLATIONS, xlab="daily violations", prob=TRUE, main="Histogram")
+xfit<-seq(min(dsmyd$VIOLATIONS),max(dsmyd$VIOLATIONS),length=5500)
+yfit<-dnorm(xfit,mean=mean(dsmyd$VIOLATIONS),sd=sd(dsmyd$VIOLATIONS))
+lines(xfit, yfit, col="blue", lwd=2)
+lines(density(dsmyd$VIOLATIONS, col= 'blue', lwd =2))
+```
+
+#qq plot
+```{r}
+qqnorm(dsmyd$VIOLATIONS)
+qqline(dsmyd$VIOLATIONS, col = 2)
+```
+
+#normality test
+```{r}
+normalTest(dsmyd$VIOLATIONS,method=c("jb")) 
+```
+
+```{r}
+plot(vts, ylab='Daily Violations', main = 'Daily Speeding Violations')
+acf(vts, plot=F) 
+acf(vts, plot=T, main = 'ACF on Daily Data') 
+
+pacf(vts, plot=T, main = 'PACF on Daily Data')
+```
+
+#Ljung Box Test
+```{r}
+Box.test(vts, lag= 10, type = 'Ljung')
+```
+
+```{r}
+adfTest(vts, lags = 180, type = c("c"))
+```
+
+# seasonal differencing
+```{r}
+sdx = diff(vts, 7)
+acf(sdx, plot = T)
+pacf(sdx, plot = T)
+```
+```{r}
+adfTest(sdx, lags = 180, type = c("c"))
+```
+
+#Try automated selection
+```{r}
+auto.arima(sdx, ic =c("bic"), trace=TRUE)
+```
+
+```{r}
+m1=Arima(sdx,order=c(0,0,3),seasonal=list(order=c(0,0,1),period=7), method="ML")
+m1
+```
+
+```{r}
+coeftest(m1)
+```
+
+#Residual Analysis
+```{r}
+acf(m1$residuals)
+pacf(m1$residuals)
+```
+```{r}
+Box.test(m1$residuals, lag = 10, type = 'Ljung')
+```
+
+# found autocorrelation
+```{r}
+dx = diff(vts)
+acf(dx, plot = T)
+pacf(dx, plot = T)
+```
+
+```{r}
+Box.test(dx, lag= 10, type = 'Ljung')
+```
+
+```{r}
+adfTest(dx, lags = 180, type = c("c"))
+```
+
+```{r}
+auto.arima(dx, max.p = 10, max.q = 10, ic =c("bic"), trace=TRUE)
+```
+
+```{r}
+m2=Arima(dx,order=c(1,0,1),seasonal=list(order=c(2,0,0),period=7), method="ML")
+m2
+```
+```{r}
+coeftest(m2)
+```
+
+#Residual analysis
+```{r}
+acf(m2$residuals)
+pacf(m2$residuals)
+```
+
+```{r}
+Box.test(m2$residuals, lag = 6, type = 'Ljung', fitdf=4)
+```
+
+#Forecast and Backtesting
+```{r}
+source("backtest.R")
+backtest(m2, dx, h=1, orig=length(vts)*0.8)
+```
+
+```{r}
+m2f=forecast(m2,h=30)
+plot(forecast(m2f, h = 30), include = 60)
+```
+```{r}
+m5=Arima(dx,order=c(1,0,7),seasonal=list(order=c(2,0,0),period=7), method="ML")
+m5
+```
+```{r}
+coeftest(m5)
+```
+
+#Residual Analysis
+```{r}
+acf(m5$residuals)
+pacf(m5$residuals)
+```
+```{r}
+Box.test(m5$residuals, lag = 22, type = 'Ljung', fitdf=8)
+```
+```{r}
+m6=Arima(vts,order=c(1,1,7),seasonal=list(order=c(2,0,0),period=7), method="ML", include.constant = TRUE)
+m6
+```
+```{r}
+coeftest(m6)
+```
+
+```{r}
+acf(m6$residuals)
+pacf(m6$residuals)
+```
+
+```{r}
+Box.test(m6$residuals, lag = 22, type = 'Ljung', fitdf=8)
+```
+
+#Forecast and Backtesting
+```{r}
+source("backtest.R")
+backtest(m6, vts, h=1, orig=length(dx)*0.8, inc.drift=TRUE)
+```
+
+```{r}
+f1=forecast(m6,h=30)
+f1
+```
+```{r}
+plot(f1, include =90)
+```
+
+#Seasonal differencing
+```{r}
+sdx7 = diff(dx,7)
+acf(sdx7, plot = T)
+pacf(sdx7, plot = T)
+```
+
+```{r}
+adfTest(sdx7, lags = 180, type = c("c"))
+```
+
+#Automated selection
+```{r}
+auto.arima(sdx7, max.p = 10, max.q = 10, ic =c("bic"), trace=TRUE)
+```
+
+```{r}
+m3=Arima(sdx7,order=c(1,0,0),seasonal=list(order=c(1,0,0),period=7), method="ML")
+m3
+```
+
+```{r}
+coeftest(m3)
+```
+
+#Residual Analysis
+```{r}
+acf(m3$residuals)
+Box.test(m3$residuals, lag = 12, type = 'Ljung', fitdf = 2)
+```
+
+```{r}
+m4=Arima(sdx7,order=c(8,0,0), method="ML")
+m4
+```
+```{r}
+coeftest(m4)
+```
+
+#Residual analysis
+```{r}
+acf(m4$residuals)
+Box.test(m4$residuals,lag=12,fitdf=8, type='Ljung')
+```
+
+
+
+#WEEKLY DATA
+```{r}
+scv=read.table("WeeklyViolations.csv",header=T, sep='\t') 
+
+head(scv)
+```
+```{r}
+x=scv$Violations
+head(x)
+```
+```{r}
+xts=ts(x,frequency=52,start=c(2014,7), end = c(2017,8,20))
+```
+
+# Create time plot
+```{r}
+autoplot(xts)+ylab("Speeding Violations")+ggtitle("Weekly Speeding Violations")
+```
+
+#Check Normality
+```{r}
+hist(x,main="Weekly Speeding Violations" , probability = TRUE, xlab = "Speeding Violations")
+lines(density(x), col="blue", lwd=2)
+lines(density(x, adjust=2), lty="dotted", col="darkgreen", lwd=2) 
+```
+
+```{r}
+normalTest(x,method=c("jb"))  
+```
+```{r}
+qqnorm(x)
+qqline(x, col = 2) 
+```
+
+#ACF and PACF of Data
+```{r}
+acf(x, main="ACF of Weekly Violations")
+pacf(x,main="PACF of Weekly Violations")
+```
+
+# Dickey Fuller Tests
+```{r}
+## Tests for AR model with time trend
+
+adfTest(xts, lags=1, type=c("ct"))
+adfTest(xts, lags=2, type=c("ct"))
+adfTest(xts, lags=4, type=c("ct"))
+adfTest(xts, lags=17, type=c("ct"))
+adfTest(xts, lags=52, type=c("ct"))
+
+## Tests for AR model with no time trend
+
+adfTest(x, lags=1, type=c("c"))
+adfTest(x, lags=2, type=c("c"))
+adfTest(x, lags=4, type=c("c"))
+adfTest(x, lags=17, type=c("c"))
+adfTest(x, lags=52, type=c("c"))
+
+```
+
+#Ljung Box Tests
+```{r}
+Box.test(x,lag = 1, type="Ljung-Box", fitdf=1)
+
+Box.test(x,lag = 3, type="Ljung-Box", fitdf=2)
+
+Box.test(x,lag = 15, type="Ljung-Box", fitdf=2)
+```
+
+
+#Applying Differencing to Data (s=17)
+```{r}
+# compute seasonal difference for weeklydata (s=17)
+sd17x=diff(x,17)
+```
+
+#Create acf plot
+```{r}
+acf(as.vector(sd17x),lag.max=30, main="ACF of 17 Lag Seasonal Differenced Violations")
+pacf(as.vector(sd17x),lag.max=30, main="PACF of 17 Lag Seasonal Differenced Violations")
+```
+
+#Ljung Box Tests
+```{r}
+Box.test(sd17x,lag = 1, type="Ljung-Box", fitdf=1)
+
+Box.test(sd17x,lag = 3, type="Ljung-Box", fitdf=2)
+
+Box.test(sd17x,lag = 15, type="Ljung-Box", fitdf=2)
+```
+
+#Check Normality
+```{r}
+hist(sd17x,main="SDX Lag 17 Speeding Violations" , probability = TRUE, xlab = "SDX Lag 17 Speeding Violations")
+lines(density(sd17x), col="blue", lwd=2)
+lines(density(sd17x, adjust=2), lty="dotted", col="darkgreen", lwd=2)
+
+qqnorm(sd17x, main="Q-Q Plot on 17 Lag seasonal differenced data")
+qqline(sd17x, col = 2)
+
+normalTest(sd17x,method=c("jb"))  
+```
+
+#Unit-root tests on Seasonal difference
+```{r}
+sd17xts=diff(xts,17)
+plot(sd17xts)
+adfTest(coredata(sd17xts), lags=2, type=c("c"))
+adfTest(sd17xts, lags=2, type=c("c"))
+```
+
+#Applying Differencing to Data (s=52)
+```{r}
+sdx=diff(x,52)
+```
+
+#Create acf plot
+```{r}
+acf(as.vector(sdx),lag.max=30, main="ACF of Seasonal Differenced Violations")
+pacf(as.vector(sdx),lag.max=30, main="PACF of Seasonal Differenced Violations")
+```
+
+#Ljung Box Tests
+```{r}
+Box.test(sdx,lag = 1, type="Ljung-Box", fitdf=1)
+
+Box.test(sdx,lag = 3, type="Ljung-Box", fitdf=2)
+
+Box.test(sdx,lag = 15, type="Ljung-Box", fitdf=2)
+```
+
+#Check Normality
+```{r}
+hist(sdx,main="SDX Speeding Violations" , probability = TRUE, xlab = "SDX Speeding Violations")
+lines(density(sdx), col="blue", lwd=2)
+lines(density(sdx, adjust=2), lty="dotted", col="darkgreen", lwd=2)
+
+qqnorm(sdx, main="Q-Q Plot on seasonal differenced data")
+qqline(sdx, col = 2)
+
+basicStats(sdx)
+
+normalTest(sdx,method=c("jb"))  
+```
+
+#Unit-root tests on Seasonal difference
+```{r}
+sdxts=diff(xts,52)
+plot(sdxts)
+adfTest(coredata(sdxts), lags=2, type=c("c"))
+adfTest(sdxts, lags=2, type=c("c"))
+```
+
+#MODEL EVALUATION OF WEEKLY DATA
+# try automated order selection
+```{r}
+#Original data
+auto.arima(xts)
+auto.arima(xts,stepwise=FALSE,approx=FALSE)
+#Differnced data(s=52)
+auto.arima(sdxts)
+auto.arima(sdxts,stepwise=FALSE,approx=FALSE)
+#Differnced data(s=17)
+auto.arima(sd17xts)
+auto.arima(sd17xts,stepwise=FALSE,approx=FALSE)
+```
+
+
+```{r}
+m0=Arima(xts, order=c(3,1,2),seasonal=list(order=c(1,0,0),period=52), method="ML")
+m1=Arima(xts, order=c(2,1,2),seasonal=list(order=c(1,0,0),period=52), method="ML")
+```
+
+```{r}
+m00=Arima(sdxts, order=c(2,0,0), method="ML")
+m11=Arima(sdxts, order=c(1,0,2), method="ML")
+```
+
+#m11 can be translated to m12 for the original data
+```{r}
+m12=Arima(xts, order=c(1,0,2),seasonal=list(order=c(0,1,0),period=52), include.constant=TRUE, method="ML")
+```
+
+```{r}
+m000=Arima(sd17xts, order=c(3,0,1), method="ML")
+m111=Arima(sd17xts, order=c(2,0,1), method="ML")
+```
+
+```{r}
+m0
+
+m1
+
+m00
+
+m11
+
+m12
+
+m000
+
+m111
+```
+
+```{r}
+autoplot(m0)
+autoplot(m1)
+autoplot(m00)
+autoplot(m11)
+autoplot(m12)
+autoplot(m000)
+autoplot(m111)
+```
+
+
+#Coefficient tests
+```{r}
+coeftest(m0)
+
+coeftest(m1)
+
+coeftest(m00)
+
+coeftest(m11)
+
+coeftest(m12)
+
+coeftest(m000)
+
+coeftest(m111)
+```
+
+
+#M1 and (M11) M12 Pass Coef Tests
+
+#Residual Analysis
+##M1
+```{r}
+acf(m1$resid, main="ARIMA(2,1,2)(1,0,0)[52] residual ACF")
+pacf(m1$resid, main="ARIMA(2,1,2)(1,0,0)[52] residual PACF")
+
+# ljung box test on residuals
+Box.test(m1$residuals, 26, "Ljung-Box", fitdf=5)
+
+Box.test(m1$residuals, 52, "Ljung-Box", fitdf=5)
+```
+
+##M12
+```{r}
+acf(m12$resid, main="ARIMA(1,0,2) with drift residual ACF")
+pacf(m12$resid, main="ARIMA(1,0,2) with drift residual PACF")
+
+#  ljung box test on residuals
+Box.test(m12$residuals, 26, "Ljung-Box", fitdf=4)
+
+Box.test(m12$residuals, 52, "Ljung-Box", fitdf=4)
+```
+
+
+#FORECASTING
+##M1
+```{r}
+f1=forecast(m1, h=52)
+
+autoplot(f1)+ xlab("Week")+ylab("Weekly Violations")+ggtitle("Forecasts from ARIMA(2,1,2)(1,0,0)[52]")
+
+```
+
+#M12
+```{r}
+f12=forecast(m12, h=52)
+
+autoplot(f12)+ xlab("Week")+ylab("Weekly Violations")+ggtitle("Forecasts from ARIMA(1,0,2) with drift")
+
+```
+
+
+#Backtesting
+```{r}
+source("backtest.R")
+
+
+backtest(m1, xts,h=1, orig=length(xts)*0.8)
+
+
+backtest(m12, xts,h=1, orig=length(xts)*0.8)
+```
+
+
+
+
+#MONTHLY DATA
+```{r}
+mcv=read.table("MonthlyViolations.csv",header=T, sep=',') 
+head(mcv)
+```
+
+```{r}
+x=mcv$Violations
+head(x)
+xts=ts(x,frequency=12,start=c(2014,7))
+```
+
+#Create time plot
+```{r}
+plot(xts, main="Monthly Speeding Violations", xlim=c(2014.5,2017.5), ylim=c(5000,150000),  ylab="Monthly Violations")
+autoplot(xts)+ylab("Speeding Violations")+ggtitle("Monthly Speeding Violations")
+```
+
+#Check Normality
+```{r}
+hist(x,main="Monthly Speeding Violations" , probability = TRUE, xlab = "Speeding Violations")
+lines(density(x), col="blue", lwd=2)
+lines(density(x, adjust=2), lty="dotted", col="darkgreen", lwd=2) 
+
+normalTest(x,method=c("jb"))  
+
+qqnorm(x)
+qqline(x, col = 2) 
+```
+
+#create acf plots
+```{r}
+acf(x,lag.max=13, main="ACF Montlhy Violations")
+pacf(x, main="PACF Montlhy Violations")
+```
+
+# Dickey Fuller Tests
+```{r}
+# tests for AR model with time trend
+adfTest(xts, lags=6, type=c("ct"))
+adfTest(xts, lags=12, type=c("ct"))
+# tests for AR model with no time trend
+adfTest(x, lags=6, type=c("c"))
+adfTest(x, lags=12, type=c("c"))
+```
+
+#Differencing
+```{r}
+dx=diff(x)
+```
+
+#Create acf plots
+```{r}
+acf(as.vector(dx),lag.max=13, main="ACF Differenced Violations")
+pacf(as.vector(dx),lag.max=13, main="PACF Differenced Violations")
+```
+
+#Check for Normality
+```{r}
+hist(dx,main="DX Speeding Violations" , probability = TRUE, xlab = "DX Speeding Violations")
+lines(density(dx), col="blue", lwd=2)
+lines(density(dx, adjust=2), lty="dotted", col="darkgreen", lwd=2) 
+
+normalTest(dx,method=c("jb"))  
+
+qqnorm(dx, main="Q-Q Plot on differenced data")
+qqline(dx, col = 2)
+
+basicStats(dx)
+```
+
+#Unit-root tests on first difference
+```{r}
+dxts=diff(xts)
+plot(dxts)
+adfTest(coredata(dxts), lags=2, type=c("c"))
+adfTest(dxts, lags=2, type=c("c"))
+```
+
+#Seasonal Differencing
+```{r}
+sdx=diff(x,12)
+```
+
+#create acf plotS
+```{r}
+acf(as.vector(sdx),lag.max=13, main="ACF of Seasonal Differenced Violations")
+pacf(as.vector(sdx),lag.max=13, main="PACF of Seasonal Differenced Violations")
+```
+
+#Ljung Box Tests
+```{r}
+Box.test(sdx,lag = 1, type="Ljung-Box", fitdf=1)
+
+Box.test(sdx,lag = 3, type="Ljung-Box", fitdf=2)
+
+Box.test(sdx,lag = 12, type="Ljung-Box", fitdf=2)
+```
+
+#Check Normality
+```{r}
+hist(sdx,main="SDX Speeding Violations" , probability = TRUE, xlab = "SDX Speeding Violations")
+lines(density(sdx), col="blue", lwd=2)
+lines(density(sdx, adjust=2), lty="dotted", col="darkgreen", lwd=2) 
+
+normalTest(sdx,method=c("jb"))  
+
+qqnorm(sdx, main="Q-Q Plot on seasonal differenced data")
+qqline(sdx, col = 2)
+
+basicStats(sdx)
+```
+
+#Unit-root tests on seasonal difference
+```{r}
+sdxts=diff(xts,12)
+plot(sdxts)
+adfTest(coredata(sdxts), lags=2, type=c("c"))
+adfTest(sdxts, lags=2, type=c("c"))
+```
+
+# try automated order selection
+```{r}
+auto.arima(xts)
+auto.arima(xts,stepwise = FALSE, approx=FALSE)
+```
+
+#Force Seasonal Differencing to compare
+```{r}
+auto.arima(xts,stepwise = FALSE,D=1, approx=FALSE)
+```
+```{r}
+m3=Arima(xts, order=c(0,1,1),seasonal=list(order=c(1,0,0),period=12), method="ML")
+```
+
+#Force Seasonal Differencing to compare
+```{r}
+m4=Arima(xts, order=c(0,0,0),seasonal=list(order=c(0,1,0),period=12), method="ML")
+```
+
+
+#Coefficient test
+```{r}
+
+coeftest(m3)
+```
+Cannot evaluate m4 coefficients, is a white noise process
+
+#Residual Analysis
+```{r}
+acf(m3$resid)
+pacf(m3$resid)
+
+acf(m4$resid)
+pacf(m4$resid)
+```
+
+#Forecast
+
+```{r}
+f3=forecast(m3, h=12)
+f3$mean
+autoplot(f3)+ xlab("Month")+ylab("Speeding Violations")+ggtitle("Forecasts from ARIMA(0,1,1)(1,0,0)[12]")
+autoplot(f3, xlim=c(2017.65,2018.6))+ xlab("Month")+ylab("Speeding Violations")+ggtitle("Forecasts from ARIMA(0,1,1)(1,0,0)[12]")
+```
+
+```{r}
+f4=forecast(m4, h=12)
+f4$mean
+autoplot(f4)+ xlab("Month")+ylab("Speeding Violations")+ggtitle("Forecasts from ARIMA(0,0,0)(0,1,0)[12]")
+autoplot(f4, xlim=c(2017.65,2018.6))+ xlab("Month")+ylab("Speeding Violations")+ggtitle("Forecasts from ARIMA(0,0,0)(0,1,0)[12]")
+```
+
+
+#Backtesting
+```{r}
+backtest(m3, xts,h=1, orig=length(xts)*0.8)
+```
+
+```{r}
+backtest(m4, xts,h=1, orig=length(xts)*0.8)
+```
+
+
+#ATTEMPTED GARCH
+
+#Violations rate of change
+```{r}
+VrOc=diff(x)/x[-length(x)]
+VrOc
+r2=VrOc^2
+absr=abs(VrOc)
+```
+
+# create acf plot 
+```{r}
+acf(as.vector(VrOc),lag.max=13, main="ACF of Violations Rate of Change")
+pacf(as.vector(VrOc),lag.max=13, main="PACF of Violations Rate of Change")
+
+acf(as.vector(r2),lag.max=13, main="ACF of Violations Rate of Change Squared")
+pacf(as.vector(r2),lag.max=13, main="PACF of Violations Rate of Change Squared")
+
+acf(as.vector(absr),lag.max=13, main="ACF of ABS(Violations Rate of Change)")
+pacf(as.vector(absr),lag.max=13, main="PACF of ABS(Violations Rate of Change)")
+```
+
+#Coefficient test
+```{r}
+Box.test(VrOc,lag = 1, type="Ljung-Box", fitdf=1)
+
+Box.test(VrOc,lag = 3, type="Ljung-Box", fitdf=2)
+
+Box.test(VrOc,lag = 12, type="Ljung-Box", fitdf=2)
+```
+
+#Check Normality
+```{r}
+hist(VrOc,main="Speeding Violations Rate of Change" , probability = TRUE, xlab = "VrOc")
+lines(density(VrOc), col="blue", lwd=2)
+lines(density(VrOc, adjust=2), lty="dotted", col="darkgreen", lwd=2) 
+
+normalTest(VrOc,method=c("jb"))  
+
+qqnorm(VrOc, main="Q-Q Plot on Violations Rate of Change")
+qqline(VrOc, col = 2)
+
+basicStats(VrOc)
+```
+
+#automated selection
+```{r}
+auto.arima(VrOc)
+m5=Arima(VrOc, order=c(0,0,2), method="ML")
+m5
+```
+
+#Coefficient test
+```{r}
+coeftest(m5)
+```
+
+#Residual Analysis
+```{r}
+acf(m5$resid)
+pacf(m5$resid)
+```
+
+#Forecast
+```{r}
+f5=forecast(m5, h=12)
+f5$mean
+plot(f5)
+```
+
